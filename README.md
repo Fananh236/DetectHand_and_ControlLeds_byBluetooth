@@ -1,96 +1,136 @@
-# Smart Detect — Điều khiển LED Arduino bằng cử chỉ tay qua HC-05
+# Điều khiển 3 LED bằng nhận diện cử chỉ tay và HC-05
 
-Ứng dụng dùng webcam và MediaPipe để nhận diện bàn tay, sau đó điều khiển ba LED trên Arduino qua module Bluetooth Classic HC-05.
+Ứng dụng Python nhận diện cử chỉ tay từ webcam bằng OpenCV và MediaPipe Hand Landmarker. Mỗi cử chỉ được xác nhận ổn định trước khi gửi trạng thái LED qua Bluetooth Classic HC-05 đến Arduino Uno.
 
 > HC-05 dùng Bluetooth Classic Serial Port Profile (SPP/RFCOMM), không phải BLE.
 
+## Trạng thái dự án
+
+Đã hoàn thành kiểm thử chức năng: camera nhận diện cử chỉ, kết nối HC-05 qua cổng Bluetooth, và điều khiển ba LED trên Arduino. Bộ kiểm thử tự động hiện có **13 test đều đạt**.
+
+```text
+Ran 13 tests
+OK
+```
+
 ## Chức năng
 
-- Nhận diện bàn tay từ webcam.
-- Điều khiển ba LED theo ngón trỏ, giữa và áp út.
-- Chớp đồng thời ba LED khi mở bốn ngón.
-- Tắt cả ba LED khi mở năm ngón.
-- Hiển thị trực tiếp trên camera: trạng thái LED, số ngón tay, cử chỉ và hướng dẫn thoát.
-- Tự kết nối lại Bluetooth trong nền nếu đường truyền bị ngắt.
+- Nhận diện 8 cử chỉ tay từ 21 MediaPipe landmarks.
+- Duy trì trạng thái riêng của LED1, LED2 và LED3.
+- Xác nhận cử chỉ trong tối thiểu 0.5 giây **hoặc** 10 frame liên tiếp.
+- Chống gửi lệnh lặp: cử chỉ đã kích hoạt được khóa đến khi tay đổi cử chỉ; cooldown mặc định là 1 giây.
+- Bluetooth không làm chậm camera; khi mất kết nối, ứng dụng thử lại sau mỗi 5 giây.
+- UI camera hiển thị cử chỉ, trạng thái LED, Bluetooth, số ngón tay, FPS và hướng dẫn thoát.
+- Chạy trên Windows hoặc Raspberry Pi 4 với Python 3.10+.
 
-## Cấu trúc dự án
+## Kiến trúc
 
 ```text
-.
-├── arduino/
-│   ├── led_controller/led_controller.ino   # Firmware chạy điều khiển LED
-│   └── hc05_config/hc05_config.ino         # Firmware tạm để cấu hình AT cho HC-05
-├── Pi_controler/
-│   ├── src/
-│   │   ├── main.py                          # Camera, nhận diện và giao tiếp Arduino
-│   │   ├── vision/                          # MediaPipe Hand Landmarker
-│   │   ├── services/                        # Chuyển cử chỉ thành trạng thái LED
-│   │   └── communication/                   # Bluetooth RFCOMM
-│   └── model/hand_landmarker.task
-└── requirements.txt
+Webcam
+  │
+  ▼
+HandDetector ──► GestureClassifier ──► GestureService ──► LedService
+                                                                  │
+                                                                  ▼
+                                                    BluetoothClient (HC-05)
+                                                                  │
+                                                                  ▼
+                                                            Arduino Uno
+                                                                  │
+                                                                  ▼
+                                                              3 LED
 ```
 
-## Phần cứng cần có
+- `HandDetector`: chạy MediaPipe Hand Landmarker và vẽ skeleton bàn tay.
+- `GestureClassifier`: biến landmarks thành enum cử chỉ.
+- `GestureService`: xác nhận độ ổn định, cooldown và chống kích hoạt lặp.
+- `LedService`: lưu trạng thái LED, chỉ thay đổi LED được cử chỉ yêu cầu.
+- `BluetoothClient`: gửi `LED:xyz\n` không đồng bộ và tự kết nối lại HC-05.
+
+## Cấu trúc thư mục
+
+```text
+DetectHand_and_ControlLeds_byBle/
+├── arduino/
+│   ├── led_controller/led_controller.ino
+│   └── hc05_config/hc05_config.ino
+├── Pi_controler/
+│   ├── model/hand_landmarker.task
+│   ├── src/
+│   │   ├── main.py
+│   │   ├── config/settings.py
+│   │   ├── communication/bluetooth_client.py
+│   │   ├── services/gesture_service.py
+│   │   ├── services/led_service.py
+│   │   └── vision/
+│   │       ├── hand_detector.py
+│   │       └── gesture_classifier.py
+│   └── tests/
+├── requirements.txt
+└── README.md
+```
+
+## Cử chỉ và trạng thái LED
+
+| Cử chỉ          | Ý nghĩa                      | Kết quả                      |
+| ----------------- | ------------------------------ | ------------------------------ |
+| `THUMBS_UP`     | 👍                             | Bật LED1, giữ LED2 và LED3. |
+| `THUMBS_DOWN`   | 👎                             | Tắt LED1, giữ LED2 và LED3. |
+| `VICTORY`       | ✌️                           | Bật LED2, giữ LED1 và LED3. |
+| `OK`            | 👌                             | Tắt LED2, giữ LED1 và LED3. |
+| `ROCK`          | 🤘 hoặc 🤟                     | Bật LED3, giữ LED1 và LED2. |
+| `THREE_FINGERS` | Mở ngón trỏ, giữa, áp út | Tắt LED3, giữ LED1 và LED2. |
+| `OPEN_PALM`     | 🖐                             | Bật cả ba LED:`LED:111`.   |
+| `FIST`          | ✊                             | Tắt cả ba LED:`LED:000`.   |
+
+Ví dụ: LED1 đang ON, sau đó nhận `VICTORY`, trạng thái trở thành LED1=ON, LED2=ON, LED3=OFF và lệnh gửi đi là `LED:110`.
+
+## Phần cứng
 
 - Arduino Uno hoặc board tương thích 5 V.
-- Module HC-05 dạng breakout.
-- Ba LED và ba điện trở hạn dòng 220–330 Ω.
+- HC-05 dạng breakout.
+- Ba LED và điện trở 220–330 Ω.
+- Điện trở 1 kΩ và 2 kΩ cho mạch giảm áp logic.
 - Webcam.
-- Máy tính Windows hoặc Raspberry Pi có Bluetooth Classic.
 
-## Đấu nối phần cứng
+### Kết nối LED
 
-### LED
+| LED                    | Arduino |
+| ---------------------- | ------- |
+| LED1 (qua điện trở) | D8      |
+| LED2 (qua điện trở) | D9      |
+| LED3 (qua điện trở) | D10     |
+| Cực âm LED           | GND     |
 
-| LED                     | Arduino |
-| ----------------------- | ------- |
-| LED 1 (qua điện trở) | D8      |
-| LED 2 (qua điện trở) | D9      |
-| LED 3 (qua điện trở) | D10     |
-| Cực âm các LED       | GND     |
+### Kết nối HC-05
 
-### HC-05 và Arduino
-
-| HC-05   | Arduino  | Ghi chú                                                                                                     |
-| ------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `VCC` | `5V`   | Chỉ áp dụng với board HC-05 có sẵn ổn áp. Module trần phải dùng đúng điện áp theo datasheet. |
-| `GND` | `GND`  | Bắt buộc nối mass chung.                                                                                  |
-| `TXD` | `D2`   | D2 là chân RX của`SoftwareSerial`.                                                                      |
-| `RXD` | `D3`  | nối trực tiếp D3 vào RXD của HC-05.                                                                     |
-
-
-Tóm lại, đường dữ liệu luôn đấu chéo:
+| HC-05   | Arduino                    | Ghi chú                                        |
+| ------- | -------------------------- | ----------------------------------------------- |
+| `VCC` | `5V`                     | Chỉ dùng 5 V nếu HC-05 breakout có ổn áp. |
+| `GND` | `GND`                    | Bắt buộc nối chung mass.                     |
+| `TXD` | `D2`                     | Arduino RX của`SoftwareSerial`.              |
+| `RXD` | `D3` qua mạch giảm áp | RXD HC-05 chỉ nhận mức logic 3.3 V.          |
 
 ```text
-HC-05 TXD  ─────────────> Arduino D2 (RX)
-Arduino D3 (TX) ────────> HC-05 RXD
-Arduino GND ────────────> HC-05 GND
+HC-05 TXD  -----------------> Arduino D2
+
+Arduino D3 -- 1kΩ --+-------> HC-05 RXD
+                    |
+                   2kΩ
+                    |
+Arduino GND --------+
 ```
 
-## 1. Cấu hình HC-05
+## Cấu hình HC-05 lần đầu
 
-Chỉ thực hiện phần này khi cấu hình lần đầu hoặc khi cần thay đổi tên, PIN, hay tốc độ UART.
-
-### Đưa HC-05 vào AT mode
+Bỏ qua mục này nếu HC-05 đã chạy data mode 9600 baud và đã ghép đôi được.
 
 1. Nạp `arduino/hc05_config/hc05_config.ino` vào Arduino.
-2. Ngắt nguồn HC-05.
-3. Giữ nút nhỏ trên HC-05, hoặc nối `KEY/EN` lên 3.3 V.
-4. Cấp nguồn lại khi vẫn giữ nút/KEY.
-5. Đèn HC-05 phải nháy chậm, khoảng hai giây một lần. Đây là full AT mode.
-
-### Gửi lệnh AT
-
-Mở Serial Monitor bằng **cổng USB của Arduino** (ví dụ `COM3`), không dùng cổng Bluetooth như `COM10`.
-
-Thiết lập Serial Monitor:
-
-- Baud rate: `9600`
-- Line ending: `CRLF` hoặc `Both NL & CR`
-
-> Sketch `hc05_config.ino` giao tiếp USB với máy tính ở 9600 baud, nhưng giao tiếp từ Arduino sang HC-05 trong AT mode ở 38400 baud. Đây là đúng thiết kế.
-
-Gửi từng lệnh và đợi `OK` sau mỗi lệnh:
+2. Ngắt nguồn HC-05, giữ nút nhỏ của module hoặc nối `KEY/EN` lên 3.3 V, rồi cấp nguồn lại.
+3. Đèn HC-05 phải nháy chậm (khoảng hai giây một lần): full AT mode.
+4. Mở Serial Monitor bằng **cổng USB Arduino** (ví dụ `COM3`), không dùng Bluetooth `COM10`.
+5. Chọn Serial Monitor: `9600 baud`, `CRLF` hoặc `Both NL & CR`.
+6. Gửi từng lệnh và đợi `OK`:
 
 ```text
 AT
@@ -102,37 +142,16 @@ AT+PSWD=1234
 AT+RESET
 ```
 
-Kết quả của `AT+UART?` phải bao gồm:
+`AT+UART?` phải trả về `+UART:9600,0,0`.
 
-```text
-+UART:9600,0,0
-```
+7. Tắt nguồn, bỏ nút/KEY, cấp nguồn lại. Đèn phải nháy nhanh: data mode.
+8. Nạp **`arduino/led_controller/led_controller.ino`** vào Arduino. Không để `hc05_config.ino` trên Arduino khi chạy ứng dụng chính.
 
-Sau đó tắt nguồn HC-05, bỏ nút/KEY và cấp nguồn lại. Đèn phải nháy nhanh, cho biết module đã trở lại data mode.
+Trong AT mode, sketch bridge nói với HC-05 ở 38400 baud. Trong data mode, firmware LED và HC-05 đều dùng 9600 baud.
 
-## 2. Nạp firmware điều khiển LED
+## Cài đặt
 
-Sau khi cấu hình HC-05 xong, nạp `arduino/led_controller/led_controller.ino` vào Arduino.
-
-Firmware này nhận lệnh dạng sau từ HC-05:
-
-```text
-LED:101
-```
-
-Trong đó `1` là bật và `0` là tắt. Arduino phản hồi bằng:
-
-```text
-OK:101
-```
-
-> Không để `hc05_config.ino` trên Arduino khi chạy ứng dụng chính; sketch đó chỉ là cầu nối phục vụ AT mode và không xử lý lệnh LED.
-
-## 3. Cài đặt Python
-
-Từ thư mục gốc của dự án:
-
-### Windows PowerShell
+### Windows
 
 ```powershell
 python -m venv .venv
@@ -141,7 +160,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### Raspberry Pi / Linux
+### Raspberry Pi 4 / Linux
 
 ```bash
 python3 -m venv .venv
@@ -150,109 +169,85 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-## 4. Ghép đôi Bluetooth và chọn cổng
+## Ghép đôi Bluetooth
 
 ### Windows
 
-1. Ghép đôi với thiết bị `DetectHand` bằng PIN `1234`.
-2. Tạo hoặc xác định cổng Bluetooth **Outgoing** trong Windows Bluetooth Settings.
-3. Ví dụ cổng Bluetooth là `COM10`:
+1. Ghép đôi `DetectHand` bằng PIN `1234`.
+2. Xác định cổng Bluetooth **Outgoing** trong Bluetooth Settings, ví dụ `COM10`.
+3. Đặt cổng trước khi chạy nếu không dùng giá trị mặc định:
 
 ```powershell
 $env:BLUETOOTH_SERIAL_PORT = "COM10"
 $env:BLUETOOTH_SERIAL_BAUDRATE = "9600"
 ```
 
-`COM10` là cổng Bluetooth dùng khi chạy ứng dụng, khác với `COM3` (cổng USB Arduino) dùng để cấu hình AT.
+`COM10` là cổng Bluetooth khi chạy ứng dụng; `COM3` là cổng USB Arduino chỉ dùng để cấu hình AT.
 
 ### Raspberry Pi
 
-Ghép đôi bằng `bluetoothctl`, sau đó tạo cổng RFCOMM:
+Ghép đôi HC-05 qua `bluetoothctl`, sau đó tạo RFCOMM (kênh SPP mặc định là 1):
 
 ```bash
 sudo rfcomm bind 0 AA:BB:CC:DD:EE:FF 1
 ```
 
-Thay địa chỉ MAC bằng địa chỉ của HC-05. Ứng dụng sẽ dùng `/dev/rfcomm0` mặc định.
+Thay địa chỉ MAC bằng HC-05 của bạn. Ứng dụng dùng `/dev/rfcomm0` mặc định.
 
-## 5. Chạy ứng dụng
+## Chạy ứng dụng
 
 ```powershell
 cd Pi_controler
 python -m src.main
 ```
 
-Khi chạy thành công, cửa sổ camera có tiêu đề `Hand Gesture LED Controller` sẽ hiển thị:
-
-- `LED Status`: LED1, LED2 và LED3 đang ON/OFF.
-- `Finger Count`: tổng số ngón được nhận diện.
-- `Gesture`: cử chỉ hiện tại.
-- `Press q to quit`: nhấn `q` để thoát.
-
-Ví dụ log kết nối đúng:
+Trên cửa sổ camera sẽ có:
 
 ```text
-Connected to Arduino HC-05 on RFCOMM port COM10.
-Arduino <- LED:000
+Gesture: VICTORY
+Finger Count: 2
+L1: ON
+L2: ON
+L3: OFF
+Bluetooth: CONNECTED
+FPS: 28.4
+Press Q to exit
 ```
 
-## Quy tắc cử chỉ
+Nhấn `Q` để thoát.
 
-| Cử chỉ                 | Kết quả                                                         |
-| ------------------------ | ----------------------------------------------------------------- |
-| Mở 4 ngón              | Cả ba LED chớp cùng lúc.                                      |
-| Mở 5 ngón              | Tắt cả ba LED.                                                  |
-| Các trường hợp khác | Ngón trỏ, giữa, áp út điều khiển lần lượt LED 1, 2, 3. |
-| Không thấy tay         | Giữ trạng thái LED gần nhất.                                 |
+## Cấu hình bằng biến môi trường
 
-## Biến môi trường
+| Biến                                    | Mặc định                  | Mô tả                                                      |
+| ---------------------------------------- | ---------------------------- | ------------------------------------------------------------ |
+| `CAMERA_INDEX`                         | `0`                        | Chỉ số webcam.                                             |
+| `CAMERA_WIDTH`, `CAMERA_HEIGHT`      | `640`, `480`             | Độ phân giải camera mong muốn.                          |
+| `BLUETOOTH_SERIAL_PORT`                | `COM10` / `/dev/rfcomm0` | Cổng HC-05. Đặt rỗng để chạy camera không Bluetooth. |
+| `BLUETOOTH_SERIAL_BAUDRATE`            | `9600`                     | Baud data mode.                                              |
+| `SERIAL_TIMEOUT_SECONDS`               | `0.5`                      | Timeout đọc/ghi serial.                                    |
+| `BLUETOOTH_RECONNECT_INTERVAL_SECONDS` | `5.0`                      | Chu kỳ thử kết nối lại HC-05.                           |
+| `GESTURE_CONFIRMATION_SECONDS`         | `0.5`                      | Thời gian xác nhận cử chỉ.                              |
+| `GESTURE_CONFIRMATION_FRAMES`          | `10`                       | Số frame liên tiếp để xác nhận cử chỉ.              |
+| `GESTURE_COOLDOWN_SECONDS`             | `1.0`                      | Thời gian khóa sau một lệnh.                             |
+| `LOG_LEVEL`                            | `INFO`                     | Mức log, ví dụ`DEBUG`.                                  |
 
-| Biến                         | Mặc định                                           | Ý nghĩa                                    |
-| ----------------------------- | ----------------------------------------------------- | -------------------------------------------- |
-| `CAMERA_INDEX`              | `0`                                                 | Chỉ số webcam.                             |
-| `CAMERA_WIDTH`              | `640`                                               | Chiều rộng camera mong muốn.              |
-| `CAMERA_HEIGHT`             | `480`                                               | Chiều cao camera mong muốn.                |
-| `BLUETOOTH_SERIAL_PORT`     | `COM10` trên Windows, `/dev/rfcomm0` trên Linux | Cổng RFCOMM của HC-05.                     |
-| `BLUETOOTH_SERIAL_BAUDRATE` | `9600`                                              | Tốc độ cổng serial khi chạy ứng dụng. |
-| `SERIAL_TIMEOUT_SECONDS`    | `0.5`                                               | Thời gian chờ serial.                      |
-| `BLINK_INTERVAL_SECONDS`    | `0.2`                                               | Chu kỳ chớp LED khi mở bốn ngón.        |
-| `LOG_LEVEL`                 | `INFO`                                              | Mức log, ví dụ`DEBUG`.                  |
-
-Ví dụ thay đổi camera:
+Ví dụ dùng camera số 1:
 
 ```powershell
 $env:CAMERA_INDEX = "1"
 python -m src.main
 ```
 
-## Khắc phục sự cố
+## Ví dụ log
 
-### Gửi `AT` nhưng không nhận `OK`
+```text
+2026-08-04 16:10:20,005 - INFO - src.communication.bluetooth_client - Connected to Arduino HC-05 on RFCOMM port COM10.
+2026-08-04 16:10:21,018 - INFO - src.main - Confirmed gesture THUMBS_UP; scheduling LED:100.
+2026-08-04 16:10:21,019 - INFO - src.communication.bluetooth_client - Arduino <- LED:100
+2026-08-04 16:10:22,612 - INFO - src.main - Confirmed gesture VICTORY; scheduling LED:110.
+```
 
-Kiểm tra lần lượt:
-
-1. Đang dùng cổng USB Arduino (`COM3` chẳng hạn), không phải Bluetooth `COM10`.
-2. HC-05 nháy chậm, nghĩa là đang ở AT mode.
-3. Serial Monitor dùng 9600 baud và `CRLF`.
-4. Dây D2/D3 được nối chéo, GND chung và D3 có mạch giảm áp.
-
-### Ứng dụng kết nối nhưng LED không thay đổi
-
-1. HC-05 phải nháy nhanh, tức data mode.
-2. Arduino phải chạy `led_controller.ino`.
-3. HC-05 và firmware LED đều phải dùng 9600 baud.
-4. Đóng Serial Monitor hoặc chương trình khác đang chiếm `COM10`.
-5. Kiểm tra LED, điện trở và các chân D8, D9, D10.
-
-### Có ký tự lạ trong phản hồi Bluetooth
-
-Kiểm tra lại data-mode baud 9600 của HC-05, nguồn cấp ổn định, mạch giảm áp ở D3 và GND chung. Nếu LED vẫn phản hồi đúng cử chỉ, phần điều khiển vẫn đang hoạt động.
-
-### Không mở được camera
-
-Kiểm tra webcam không bị ứng dụng khác sử dụng. Thử đổi `CAMERA_INDEX`, ví dụ từ `0` sang `1`.
-
-## Kiểm thử
+## Kiểm thử tự động
 
 Từ thư mục `Pi_controler`:
 
@@ -260,5 +255,44 @@ Từ thư mục `Pi_controler`:
 python -m unittest discover -s tests -v
 ```
 
-Các kiểm thử này mô phỏng cổng serial; không cần kết nối Arduino hoặc HC-05.
-"# DetectHand_and_ControlLeds_byBluetooth" 
+Các test dùng landmarks giả và serial mock, không cần webcam, Arduino hay HC-05:
+
+- `test_gesture_classifier.py`: toàn bộ cử chỉ hỗ trợ và trường hợp không hợp lệ.
+- `test_led_service.py`: trạng thái LED bền vững và giao thức `LED:xyz`.
+- `test_gesture_service.py`: xác nhận theo frame/thời gian, latch và cooldown.
+- `test_arduino_controller.py`: tương thích với driver serial cũ.
+
+## Kiểm thử phần cứng đã thực hiện
+
+Checklist trước khi bàn giao:
+
+- [X] HC-05 được cấu hình data mode `9600,0,0`.
+- [X] HC-05 ghép đôi Bluetooth và chạy qua cổng RFCOMM Windows, ví dụ `COM10`.
+- [X] Arduino nhận lệnh `LED:xyz` và điều khiển ba LED.
+- [X] Cửa sổ camera hiển thị landmark, cử chỉ, trạng thái LED, Bluetooth, số ngón và FPS.
+- [X] Nhấn `Q` đóng ứng dụng và giải phóng camera/cổng Bluetooth.
+
+Khi triển khai trên máy khác, chỉ cần kiểm tra lại số cổng Bluetooth Outgoing và đặt `BLUETOOTH_SERIAL_PORT` tương ứng.
+
+## Khắc phục sự cố
+
+### Không nhận được `OK` khi gửi `AT`
+
+- Dùng `COM3` (USB Arduino), không phải `COM10` (Bluetooth).
+- HC-05 phải nháy chậm; nếu nháy nhanh, nó đang ở data mode.
+- Serial Monitor đặt 9600 và CRLF.
+- Kiểm tra D2/D3 đấu chéo, điện trở giảm áp và GND chung.
+
+### Bluetooth hiển thị `DISCONNECTED`
+
+- Kiểm tra HC-05 nháy nhanh và đã ghép đôi.
+- Kiểm tra đúng cổng Outgoing `COMx`.
+- Đóng Serial Monitor hoặc ứng dụng khác đang giữ cổng Bluetooth.
+- Ứng dụng sẽ tự thử lại sau 5 giây; có thể thay đổi bằng biến môi trường.
+
+### Cử chỉ bị nhận nhầm
+
+- Để toàn bộ bàn tay trong khung hình, lòng bàn tay hướng tương đối về camera.
+- Giữ cử chỉ ổn định ít nhất 0.5 giây hoặc 10 frame.
+- Tránh ngược sáng; thử tăng độ sáng và đặt tay tách khỏi nền.
+- Các cử chỉ phức tạp như `OK` và `ROCK` cần đầu ngón rõ ràng, không bị che

@@ -1,4 +1,4 @@
-"""Application entry point for camera hand gestures and Arduino LEDs."""
+"""Camera application for gesture-driven Arduino LED control."""
 
 from __future__ import annotations
 
@@ -8,51 +8,50 @@ import time
 
 import cv2
 
-from .communication import ArduinoBluetoothController, ArduinoConnectionError
-from .config import (
-    BLUETOOTH_COMMAND_RESEND_INTERVAL_SECONDS,
-    BLUETOOTH_RECONNECT_INTERVAL_SECONDS,
-    BLUETOOTH_SERIAL_BAUDRATE,
-    BLUETOOTH_SERIAL_PORT,
-    BLINK_INTERVAL_SECONDS,
-    CAMERA_HEIGHT,
-    CAMERA_INDEX,
-    CAMERA_WIDTH,
-    HAND_LANDMARKER_MODEL,
-    LOG_LEVEL,
-    SERIAL_TIMEOUT_SECONDS,
-)
-from .services import GestureLedService
-from .vision import HandDetector
+from .communication import BluetoothClient, BluetoothConnectionError
+from .config import Settings
+from .services import GestureService, LedService
+from .vision import FingerStates, Gesture, GestureClassifier, HandDetector
 
 
 LOGGER = logging.getLogger(__name__)
 WINDOW_NAME = "Hand Gesture LED Controller"
-NO_HAND_FINGERS = (False, False, False, False, False)
 
 
 class HandGestureApplication:
-    """Coordinate camera capture, gesture recognition and Arduino output."""
+    """Coordinate camera capture, gesture recognition and HC-05 output."""
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._camera = None
         self._last_detection_timestamp_ms = -1
-        self._detector = HandDetector(HAND_LANDMARKER_MODEL)
-        self._gesture_service = GestureLedService(BLINK_INTERVAL_SECONDS)
-        self._arduino = None
-        if BLUETOOTH_SERIAL_PORT:
+        self._last_frame_at: float | None = None
+        self._fps = 0.0
+        self._detector = HandDetector(settings.hand_landmarker_model)
+        self._classifier = GestureClassifier()
+        self._led_service = LedService()
+        self._gesture_service = GestureService(
+            self._led_service,
+            confirmation_seconds=settings.gesture_confirmation_seconds,
+            confirmation_frames=settings.gesture_confirmation_frames,
+            cooldown_seconds=settings.gesture_cooldown_seconds,
+        )
+        self._bluetooth: BluetoothClient | None = None
+        if settings.bluetooth_serial_port:
             try:
-                self._arduino = ArduinoBluetoothController(
-                    BLUETOOTH_SERIAL_PORT,
-                    BLUETOOTH_SERIAL_BAUDRATE,
-                    SERIAL_TIMEOUT_SECONDS,
-                    reconnect_interval=BLUETOOTH_RECONNECT_INTERVAL_SECONDS,
-                    command_resend_interval=BLUETOOTH_COMMAND_RESEND_INTERVAL_SECONDS,
+                self._bluetooth = BluetoothClient(
+                    settings.bluetooth_serial_port,
+                    baudrate=settings.bluetooth_serial_baudrate,
+                    timeout=settings.serial_timeout_seconds,
+                    reconnect_interval=settings.bluetooth_reconnect_interval_seconds,
                 )
-            except ArduinoConnectionError as exc:
-                LOGGER.warning("Arduino control disabled; camera will still run: %s", exc)
+                # Ensure a newly connected Arduino receives the known initial state.
+                self._bluetooth.send_led_states(self._led_service.states.as_tuple())
+            except BluetoothConnectionError as exc:
+                LOGGER.warning("Bluetooth control disabled; camera will still run: %s", exc)
 
     def run(self) -> None:
+        """Run the camera loop until the user presses ``q``."""
         try:
             self._initialize_camera()
             self._detector.start()
@@ -64,26 +63,33 @@ class HandGestureApplication:
                     raise RuntimeError("Cannot read a frame from the configured camera.")
 
                 frame = cv2.flip(frame, 1)
-
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self._detector.detect(
                     frame_rgb,
                     self._next_detection_timestamp_ms(),
                 )
 
-                gesture = "NO_HAND"
-                fingers = NO_HAND_FINGERS
+                gesture = Gesture.UNKNOWN
+                fingers = FingerStates(False, False, False, False, False)
                 if results.hand_landmarks:
                     landmarks = results.hand_landmarks[0]
-                    fingers = self._detector.detect_fingers(landmarks)
-                    update = self._gesture_service.update(fingers)
-                    gesture = update.gesture
+                    handedness = self._handedness(results)
+                    gesture = self._classifier.classify(landmarks, handedness)
+                    fingers = self._classifier.finger_states(landmarks)
                     self._detector.draw_landmarks(frame, landmarks)
 
-                self._draw_overlay(frame, gesture, fingers)
-                if self._arduino is not None:
-                    self._arduino.send_led_states(self._gesture_service.led_states)
+                decision = self._gesture_service.observe(gesture)
+                if decision.triggered:
+                    LOGGER.info(
+                        "Confirmed gesture %s; scheduling %s.",
+                        decision.stable_gesture.value,
+                        decision.states.command,
+                    )
+                    if self._bluetooth is not None:
+                        self._bluetooth.send_led_states(decision.states.as_tuple())
 
+                self._fps = self._update_fps()
+                self._draw_overlay(frame, gesture, fingers)
                 cv2.imshow(WINDOW_NAME, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -91,19 +97,19 @@ class HandGestureApplication:
             self.close()
 
     def _initialize_camera(self) -> None:
-        # Media Foundation can report a Windows webcam as open but still fail
-        # on the first frame. DirectShow is more reliable for this project.
+        # Media Foundation can open a webcam but fail on its first frame.
         backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
-        self._camera = cv2.VideoCapture(CAMERA_INDEX, backend)
+        self._camera = cv2.VideoCapture(self._settings.camera_index, backend)
         if not self._camera.isOpened():
             raise RuntimeError(
-                f"Cannot open camera index {CAMERA_INDEX}. Check the webcam or CAMERA_INDEX."
+                "Cannot open camera index "
+                f"{self._settings.camera_index}. Check the webcam or CAMERA_INDEX."
             )
-        self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-        self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, self._settings.camera_width)
+        self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self._settings.camera_height)
 
     def _next_detection_timestamp_ms(self) -> int:
-        """Return a strictly increasing timestamp required by MediaPipe VIDEO mode."""
+        """Return MediaPipe VIDEO timestamps that are strictly increasing."""
         timestamp_ms = int(time.monotonic() * 1000)
         self._last_detection_timestamp_ms = max(
             timestamp_ms,
@@ -111,48 +117,105 @@ class HandGestureApplication:
         )
         return self._last_detection_timestamp_ms
 
-    def _draw_overlay(self, frame, gesture: str, fingers) -> None:
-        cv2.rectangle(frame, (10, 10), (310, 150), (0, 0, 0), -1)
-        cv2.putText(
-            frame, "LED Status", (20, 35), cv2.FONT_HERSHEY_SIMPLEX,
-            0.6, (255, 255, 255), 1,
+    def _update_fps(self) -> float:
+        now = time.monotonic()
+        if self._last_frame_at is None:
+            self._last_frame_at = now
+            return 0.0
+        elapsed = max(now - self._last_frame_at, 1e-6)
+        self._last_frame_at = now
+        instantaneous_fps = 1.0 / elapsed
+        return instantaneous_fps if self._fps == 0 else (0.9 * self._fps) + (0.1 * instantaneous_fps)
+
+    @staticmethod
+    def _handedness(results) -> str | None:
+        """Extract MediaPipe's optional hand label without coupling to its type."""
+        if not results.handedness or not results.handedness[0]:
+            return None
+        return results.handedness[0][0].category_name
+
+    def _draw_overlay(
+        self,
+        frame,
+        gesture: Gesture,
+        fingers: FingerStates,
+    ) -> None:
+        """Draw live gesture, LED, Bluetooth and performance status."""
+        panel_left, panel_top, panel_right, panel_bottom = 10, 10, 355, 210
+        cv2.rectangle(
+            frame,
+            (panel_left, panel_top),
+            (panel_right, panel_bottom),
+            (0, 0, 0),
+            -1,
         )
-        for index, state in enumerate(self._gesture_service.led_states, start=1):
+        cv2.rectangle(
+            frame,
+            (panel_left, panel_top),
+            (panel_right, panel_bottom),
+            (80, 80, 80),
+            1,
+        )
+        self._put_text(frame, "Gesture LED Controller", 35, (255, 255, 255), 0.62)
+        gesture_color = (0, 255, 255) if gesture is not Gesture.UNKNOWN else (180, 180, 180)
+        self._put_text(frame, f"Gesture: {gesture.value}", 60, gesture_color)
+        self._put_text(frame, f"Finger Count: {fingers.count}", 85, (255, 255, 255))
+
+        states = self._led_service.states.as_tuple()
+        for index, state in enumerate(states, start=1):
             color = (0, 255, 0) if state else (0, 0, 255)
-            cv2.putText(
-                frame, f"LED{index}: {'ON' if state else 'OFF'}", (20, 60 + (index - 1) * 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1,
+            self._put_text(
+                frame,
+                f"L{index}: {'ON' if state else 'OFF'}",
+                85 + (index * 25),
+                color,
             )
-        cv2.putText(
-            frame, f"Finger Count: {sum(fingers)}", (20, 120),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
+
+        connected = bool(self._bluetooth and self._bluetooth.is_connected)
+        bluetooth_color = (0, 255, 0) if connected else (0, 0, 255)
+        bluetooth_text = "CONNECTED" if connected else "DISCONNECTED"
+        self._put_text(frame, f"Bluetooth: {bluetooth_text}", 185, bluetooth_color)
+        self._put_text(frame, f"FPS: {self._fps:.1f}", 205, (255, 255, 255))
+        self._put_text(
+            frame,
+            "Press Q to exit",
+            max(frame.shape[0] - 12, 20),
+            (255, 255, 255),
         )
+
+    @staticmethod
+    def _put_text(frame, text: str, y: int, color, scale: float = 0.55) -> None:
         cv2.putText(
-            frame, f"Gesture: {gesture}", (20, 145),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
-        )
-        cv2.putText(
-            frame, "Press q to quit", (10, frame.shape[0] - 10),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
+            frame,
+            text,
+            (20, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            color,
+            1,
+            cv2.LINE_AA,
         )
 
     def close(self) -> None:
+        """Release camera, MediaPipe and Bluetooth resources."""
         self._detector.close()
         if self._camera is not None:
             self._camera.release()
             self._camera = None
-        if self._arduino is not None:
-            self._arduino.close()
+        if self._bluetooth is not None:
+            self._bluetooth.close()
         cv2.destroyAllWindows()
 
 
 def main() -> int:
-    logging.basicConfig(
-        level=LOG_LEVEL,
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    )
+    """Configure logging and run the application."""
     try:
-        HandGestureApplication().run()
+        settings = Settings.from_environment()
+        logging.basicConfig(
+            level=settings.log_level,
+            format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        )
+        HandGestureApplication(settings).run()
     except Exception:
         LOGGER.exception("Application stopped because of an error.")
         return 1

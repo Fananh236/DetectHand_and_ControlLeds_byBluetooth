@@ -1,63 +1,104 @@
-"""Translate detected fingers into LED states."""
+"""Gesture confirmation, cooldown and LED-command orchestration."""
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Final
+from typing import Callable
 
-
-BLINK: Final = "BLINK"
-ALL_OFF: Final = "ALL_OFF"
-FINGER_CONTROL: Final = "FINGER_CONTROL"
+from ..vision.gesture_classifier import Gesture
+from .led_service import LedService, LedStates
 
 
 @dataclass(frozen=True)
-class GestureUpdate:
-    """The current recognized gesture and LED state it produces."""
+class GestureDecision:
+    """The result of processing one camera frame."""
 
-    gesture: str
-    fingers: tuple[bool, bool, bool, bool, bool]
-    led_states: tuple[bool, bool, bool]
+    detected_gesture: Gesture
+    stable_gesture: Gesture
+    states: LedStates
+    triggered: bool
 
 
-class GestureLedService:
-    """Maintain LED behaviour for hand gestures across camera frames."""
+class GestureService:
+    """Confirm stable gestures and apply each held gesture at most once.
 
-    def __init__(self, blink_interval_seconds: float) -> None:
-        self._blink_interval_seconds = blink_interval_seconds
-        self._led_states: tuple[bool, bool, bool] = (False, False, False)
-        self._previous_gesture: str | None = None
-        self._last_blink_time = 0.0
+    A pose is actionable once it has been present for the configured duration
+    *or* the configured number of consecutive frames. Once triggered, that
+    pose is latched until the camera observes a different pose. The latch and
+    cooldown together prevent repeated Bluetooth commands while a user holds a
+    hand gesture in front of the camera.
+    """
+
+    def __init__(
+        self,
+        led_service: LedService,
+        confirmation_seconds: float = 0.5,
+        confirmation_frames: int = 10,
+        cooldown_seconds: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if confirmation_seconds < 0:
+            raise ValueError("confirmation_seconds cannot be negative.")
+        if confirmation_frames <= 0:
+            raise ValueError("confirmation_frames must be greater than zero.")
+        if cooldown_seconds < 0:
+            raise ValueError("cooldown_seconds cannot be negative.")
+
+        self._led_service = led_service
+        self._confirmation_seconds = confirmation_seconds
+        self._confirmation_frames = confirmation_frames
+        self._cooldown_seconds = cooldown_seconds
+        self._clock = clock
+        self._candidate = Gesture.UNKNOWN
+        self._candidate_started_at = 0.0
+        self._candidate_frames = 0
+        self._latched_gesture: Gesture | None = None
+        self._last_triggered_at = float("-inf")
 
     @property
-    def led_states(self) -> tuple[bool, bool, bool]:
-        return self._led_states
+    def states(self) -> LedStates:
+        return self._led_service.states
 
-    def update(self, fingers: tuple[bool, bool, bool, bool, bool]) -> GestureUpdate:
-        """Update the LED state for a newly detected hand."""
-        finger_count = sum(fingers)
-        if finger_count == 4:
-            gesture = BLINK
-        elif finger_count == 5:
-            gesture = ALL_OFF
+    def observe(self, gesture: Gesture, now: float | None = None) -> GestureDecision:
+        """Process a raw gesture classification from one video frame."""
+        timestamp = self._clock() if now is None else now
+
+        if gesture is not self._latched_gesture:
+            self._latched_gesture = None
+
+        if gesture is Gesture.UNKNOWN:
+            self._reset_candidate()
+            return GestureDecision(gesture, Gesture.UNKNOWN, self.states, False)
+
+        if gesture is not self._candidate:
+            self._candidate = gesture
+            self._candidate_started_at = timestamp
+            self._candidate_frames = 1
         else:
-            gesture = FINGER_CONTROL
+            self._candidate_frames += 1
 
-        if gesture == BLINK:
-            now = time.monotonic()
-            if self._previous_gesture != BLINK:
-                self._led_states = (True, True, True)
-                self._last_blink_time = now
-            elif now - self._last_blink_time >= self._blink_interval_seconds:
-                next_state = not self._led_states[0]
-                self._led_states = (next_state, next_state, next_state)
-                self._last_blink_time = now
-        elif gesture == ALL_OFF:
-            self._led_states = (False, False, False)
-        else:
-            # Index 0 is thumb; index 1..3 map to Arduino pins 8, 9 and 10.
-            self._led_states = (fingers[1], fingers[2], fingers[3])
+        confirmed = (
+            self._candidate_frames >= self._confirmation_frames
+            or timestamp - self._candidate_started_at >= self._confirmation_seconds
+        )
+        outside_cooldown = timestamp - self._last_triggered_at >= self._cooldown_seconds
+        can_trigger = (
+            confirmed
+            and outside_cooldown
+            and self._latched_gesture is None
+            and gesture is self._candidate
+        )
+        if not can_trigger:
+            stable_gesture = self._candidate if confirmed else Gesture.UNKNOWN
+            return GestureDecision(gesture, stable_gesture, self.states, False)
 
-        self._previous_gesture = gesture
-        return GestureUpdate(gesture, fingers, self._led_states)
+        self._latched_gesture = gesture
+        self._last_triggered_at = timestamp
+        update = self._led_service.apply(gesture)
+        return GestureDecision(gesture, gesture, update.states, True)
+
+    def _reset_candidate(self) -> None:
+        self._candidate = Gesture.UNKNOWN
+        self._candidate_started_at = 0.0
+        self._candidate_frames = 0
