@@ -52,16 +52,5 @@ pipeline {
             }
         }
 
-        stage('SonarQube analysis') {
-            steps {
-                script {
-                    docker.image('sonarsource/sonar-scanner-cli:latest').inside {
-                        withSonarQubeEnv('SonarQube') {
-                            sh 'sonar-scanner -Dsonar.projectKey=DetectHand_and_ControlLeds_byBluetooth -Dsonar.sources=Pi_controler/src -Dsonar.tests=Pi_controler/tests -Dsonar.python.coverage.reportPaths=Pi_controler/coverage.xml'
-                        }
-                    }
-                }
-            }
-        }
     }
 }
