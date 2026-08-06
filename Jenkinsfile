@@ -1,69 +1,50 @@
-pipeline {
-    agent any
-
-    options {
-        skipDefaultCheckout(true)
+node {
+    stage('Checkout') {
+        checkout scm
     }
 
-    stages {
+    def ciImage
 
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
+    stage('Build Docker') {
+        ciImage = docker.build('smart-detect')
+    }
 
-        stage('Build Docker') {
-            steps {
-                script {
-                    docker.build("smart-detect")
-                }
-            }
-        }
-
-        stage('Preparation') {
-            steps {
+    // Keep one Python container alive while displaying each CI action as a
+    // separate top-level Stage View column.
+    ciImage.inside {
+        try {
+            stage('Preparation') {
                 sh 'python --version'
                 sh 'python -c "import cv2; print(cv2.__version__)"'
             }
-        }
 
-        stage('Lint') {
-            steps {
+            stage('Lint') {
                 sh 'python -m flake8 --version'
                 sh 'python -m flake8 Pi_controler/src Pi_controler/tests'
             }
-        }
 
-        stage('Unit Test') {
-            steps {
+            stage('Unit Test') {
                 sh '''
                 cd Pi_controler
                 python -m coverage run -m unittest discover -s tests -p "test_*.py"
                 '''
             }
-        }
 
-        stage('Coverage XML') {
-            steps {
+            stage('Coverage XML') {
                 sh '''
                 cd Pi_controler
                 python -m coverage xml -o coverage.xml
                 '''
             }
-        }
 
-        stage('Coverage Report') {
-            steps {
+            stage('Coverage Report') {
                 sh '''
                 cd Pi_controler
                 python -m coverage report -m
                 '''
             }
-        }
-
-        stage('Cleanup') {
-            steps {
+        } finally {
+            stage('Cleanup') {
                 cleanWs()
             }
         }
