@@ -13,11 +13,11 @@ RUN apt-get update \
         libxrender1 \
         libxcb1 \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --upgrade pip
-RUN pip install flake8 coverage
+RUN python -m pip install --no-cache-dir --upgrade pip
+RUN python -m pip install --no-cache-dir flake8 coverage
 
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY . /workspace
 
