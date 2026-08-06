@@ -17,12 +17,12 @@ pipeline {
             }
         }
 
-        // Sequential child stages inherit this single Docker agent. Dependencies
-        // installed in Preparation therefore remain available to Lint and Test.
+        // Sequential child stages inherit one cached project image. The image
+        // contains Python dependencies and OpenCV's native Linux libraries.
         stage('CI checks') {
             agent {
-                docker {
-                    image 'python:3.14-slim'
+                dockerfile {
+                    filename 'Dockerfile'
                     reuseNode true
                 }
             }
@@ -31,8 +31,7 @@ pipeline {
                 stage('Preparation') {
                     steps {
                         sh 'python --version'
-                        sh 'python -m pip install --upgrade pip'
-                        sh 'python -m pip install -r requirements.txt flake8 coverage'
+                        sh 'python -c "import cv2; print(cv2.__version__)"'
                     }
                 }
 
