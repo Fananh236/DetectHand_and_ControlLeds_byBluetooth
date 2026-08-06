@@ -1,0 +1,4 @@
+[flake8]
+# The application uses descriptive names and type annotations; 120 characters
+# keeps those lines readable without suppressing the line-length check entirely.
+max-line-length = 120

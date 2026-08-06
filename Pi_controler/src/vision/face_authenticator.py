@@ -184,5 +184,5 @@ class FaceAuthenticator:
     @staticmethod
     def _crop_and_normalize(gray_image, face_box: tuple[int, int, int, int]):
         x, y, width, height = face_box
-        face = gray_image[y : y + height, x : x + width]
+        face = gray_image[y:y + height, x:x + width]
         return cv2.resize(face, FACE_SIZE, interpolation=cv2.INTER_AREA)
