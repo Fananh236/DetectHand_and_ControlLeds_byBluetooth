@@ -45,7 +45,7 @@ node {
             }
         } finally {
             stage('Cleanup') {
-                cleanWs()
+                deleteDir()
             }
         }
     }
