@@ -1,4 +1,6 @@
 # Python 3.10+
 mediapipe>=0.10.14,<0.11
-opencv-python>=4.9.0,<5
+# Includes cv2.face.LBPHFaceRecognizer used to authenticate the owner.
+# Do not install opencv-python alongside this package: both provide cv2.
+opencv-contrib-python>=4.9.0,<5
 pyserial>=3.5,<4

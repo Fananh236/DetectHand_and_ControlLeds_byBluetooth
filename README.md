@@ -20,6 +20,7 @@ OK
 - Xác nhận cử chỉ trong tối thiểu 0.5 giây **hoặc** 10 frame liên tiếp.
 - Chống gửi lệnh lặp: cử chỉ đã kích hoạt được khóa đến khi tay đổi cử chỉ; cooldown mặc định là 1 giây.
 - Bluetooth không làm chậm camera; khi mất kết nối, ứng dụng thử lại sau mỗi 5 giây.
+- Chỉ mở điều khiển cử chỉ sau khi khuôn mặt khớp với ảnh chủ sở hữu trong `Pi_controler/data`.
 - UI camera hiển thị cử chỉ, trạng thái LED, Bluetooth, số ngón tay, FPS và hướng dẫn thoát.
 - Chạy trên Windows hoặc Raspberry Pi 4 với Python 3.10+.
 
@@ -72,16 +73,16 @@ DetectHand_and_ControlLeds_byBle/
 
 ## Cử chỉ và trạng thái LED
 
-| Cử chỉ          | Ý nghĩa                      | Kết quả                      |
-| ----------------- | ------------------------------ | ------------------------------ |
-| `THUMBS_UP`     | 👍                             | Bật LED1, giữ LED2 và LED3. |
-| `THUMBS_DOWN`   | 👎                             | Tắt LED1, giữ LED2 và LED3. |
-| `VICTORY`       | ✌️                           | Bật LED2, giữ LED1 và LED3. |
-| `OK`            | 👌                             | Tắt LED2, giữ LED1 và LED3. |
-| `ROCK`          | 🤘 hoặc 🤟                     | Bật LED3, giữ LED1 và LED2. |
-| `THREE_FINGERS` | Mở ngón trỏ, giữa, áp út | Tắt LED3, giữ LED1 và LED2. |
-| `OPEN_PALM`     | 🖐                             | Bật cả ba LED:`LED:111`.   |
-| `FIST`          | ✊                             | Tắt cả ba LED:`LED:000`.   |
+| Cử chỉ          | Ý nghĩa                      | Kết quả                                |
+| ----------------- | ------------------------------ | ---------------------------------------- |
+| `THUMBS_UP`     | 👍                             | Bật LED1, giữ LED2 và LED3.           |
+| `THUMBS_DOWN`   | 👎                             | Tắt LED1, giữ LED2 và LED3.           |
+| `VICTORY`       | ✌️                           | Bật LED2, giữ LED1 và LED3.           |
+| `OK`            | 👌                             | Tắt LED2, giữ LED1 và LED3.           |
+| `ROCK`          | 🤘 hoặc 🤟                    | Bật LED3, giữ LED1 và LED2.           |
+| `THREE_FINGERS` | Mở ngón trỏ, giữa, áp út | Tắt LED3, giữ LED1 và LED2.           |
+| `OPEN_PALM`     | 🖐                             | Bật cả ba LED:`LED:111`.<br /><br /> |
+| `FIST`          | ✊                             | Tắt cả ba LED:`LED:000`.             |
 
 Ví dụ: LED1 đang ON, sau đó nhận `VICTORY`, trạng thái trở thành LED1=ON, LED2=ON, LED3=OFF và lệnh gửi đi là `LED:110`.
 
@@ -160,6 +161,13 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+> Xác thực khuôn mặt dùng `opencv-contrib-python`. Nếu trước đây đã cài `opencv-python`, hãy gỡ nó trước để tránh hai gói cùng cung cấp module `cv2`:
+
+```powershell
+python -m pip uninstall opencv-python
+python -m pip install -r requirements.txt
+```
+
 ### Raspberry Pi 4 / Linux
 
 ```bash
@@ -229,6 +237,9 @@ Nhấn `Q` để thoát.
 | `GESTURE_CONFIRMATION_SECONDS`         | `0.5`                      | Thời gian xác nhận cử chỉ.                              |
 | `GESTURE_CONFIRMATION_FRAMES`          | `10`                       | Số frame liên tiếp để xác nhận cử chỉ.              |
 | `GESTURE_COOLDOWN_SECONDS`             | `1.0`                      | Thời gian khóa sau một lệnh.                             |
+| `FACE_AUTH_ENABLED`                    | `true`                     | Bật xác thực khuôn mặt trước khi nhận diện tay. Chỉ tắt khi phát triển/debug. |
+| `FACE_AUTH_THRESHOLD`                  | `55.0`                     | Ngưỡng LBPH; nhỏ hơn nghiêm ngặt hơn. Tăng dần nếu chính chủ bị từ chối. |
+| `FACE_AUTH_CHECK_INTERVAL_FRAMES`      | `5`                        | Số frame giữa hai lần so khớp khuôn mặt để giảm tải CPU. |
 | `LOG_LEVEL`                            | `INFO`                     | Mức log, ví dụ`DEBUG`.                                  |
 
 Ví dụ dùng camera số 1:

@@ -25,6 +25,16 @@ def _environment_float(name: str, default: float) -> float:
         raise ValueError(f"{name} must be a number, received {value!r}.") from exc
 
 
+def _environment_bool(name: str, default: bool) -> bool:
+    """Read a boolean environment setting using common shell-friendly values."""
+    value = os.getenv(name, str(default)).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false, received {value!r}.")
+
+
 @dataclass(frozen=True)
 class Settings:
     """All values needed by the desktop or Raspberry Pi application."""
@@ -41,6 +51,10 @@ class Settings:
     gesture_confirmation_seconds: float
     gesture_confirmation_frames: int
     gesture_cooldown_seconds: float
+    face_auth_enabled: bool
+    face_auth_reference_directory: Path
+    face_auth_threshold: float
+    face_auth_check_interval_frames: int
     log_level: str
 
     @classmethod
@@ -75,6 +89,12 @@ class Settings:
             gesture_cooldown_seconds=_environment_float(
                 "GESTURE_COOLDOWN_SECONDS", 1.0
             ),
+            face_auth_enabled=_environment_bool("FACE_AUTH_ENABLED", True),
+            face_auth_reference_directory=project_root / "data",
+            face_auth_threshold=_environment_float("FACE_AUTH_THRESHOLD", 55.0),
+            face_auth_check_interval_frames=_environment_int(
+                "FACE_AUTH_CHECK_INTERVAL_FRAMES", 5
+            ),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         )
         settings._validate()
@@ -99,3 +119,9 @@ class Settings:
             raise ValueError("GESTURE_CONFIRMATION_FRAMES must be greater than zero.")
         if self.gesture_cooldown_seconds < 0:
             raise ValueError("GESTURE_COOLDOWN_SECONDS cannot be negative.")
+        if self.face_auth_threshold <= 0:
+            raise ValueError("FACE_AUTH_THRESHOLD must be greater than zero.")
+        if self.face_auth_check_interval_frames <= 0:
+            raise ValueError(
+                "FACE_AUTH_CHECK_INTERVAL_FRAMES must be greater than zero."
+            )
