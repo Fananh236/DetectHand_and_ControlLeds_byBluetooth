@@ -8,7 +8,7 @@ node('Window') {
             bat '''
             python -m venv .jenkins-venv
             "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install --upgrade pip
-            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install -r requirements-dev.txt
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install -r requirements.txt
             '''
         }
 
