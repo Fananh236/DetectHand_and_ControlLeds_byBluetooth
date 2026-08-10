@@ -14,6 +14,7 @@ HAND_LANDMARKER_MODEL = MODEL_DIR / "hand_landmarker.task"
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
+CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
 
 # The HC-05 uses Bluetooth Classic Serial Port Profile (RFCOMM), not BLE.
 # The paired Windows endpoint for this project is explicitly COM10 (Outgoing).

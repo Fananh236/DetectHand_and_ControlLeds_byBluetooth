@@ -41,6 +41,7 @@ class HandGestureApplication:
             FaceAuthenticator(
                 settings.face_auth_reference_directory,
                 threshold=settings.face_auth_threshold,
+                model_path=settings.face_auth_model_path,
             )
             if settings.face_auth_enabled
             else None
@@ -125,8 +126,14 @@ class HandGestureApplication:
                 "Cannot open camera index "
                 f"{self._settings.camera_index}. Check the webcam or CAMERA_INDEX."
             )
+        self._camera.set(
+            cv2.CAP_PROP_FOURCC,
+            cv2.VideoWriter_fourcc(*"MJPG"),
+        )
         self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, self._settings.camera_width)
         self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self._settings.camera_height)
+        self._camera.set(cv2.CAP_PROP_FPS, self._settings.camera_fps)
+        self._camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     def _next_detection_timestamp_ms(self) -> int:
         """Return MediaPipe VIDEO timestamps that are strictly increasing."""

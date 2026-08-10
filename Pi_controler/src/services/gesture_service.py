@@ -102,3 +102,9 @@ class GestureService:
         self._candidate = Gesture.UNKNOWN
         self._candidate_started_at = 0.0
         self._candidate_frames = 0
+
+    def reset(self) -> None:
+        """Clear confirmation and latch state when control mode changes."""
+        self._reset_candidate()
+        self._latched_gesture = None
+        self._last_triggered_at = float("-inf")

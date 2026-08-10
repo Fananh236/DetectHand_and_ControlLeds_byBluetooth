@@ -52,3 +52,11 @@ class LedServiceTests(TestCase):
 
     def test_command_uses_arduino_protocol_order(self) -> None:
         self.assertEqual(LedStates(True, False, True).command, "LED:101")
+
+    def test_manual_replacement_updates_all_leds_at_once(self) -> None:
+        service = LedService(LedStates(False, False, False))
+
+        update = service.set_states(LedStates(True, False, True))
+
+        self.assertTrue(update.changed)
+        self.assertEqual(update.states.command, "LED:101")

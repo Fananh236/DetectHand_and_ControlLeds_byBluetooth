@@ -55,3 +55,18 @@ class GestureServiceTests(TestCase):
 
         self.assertTrue(decision.triggered)
         self.assertEqual(decision.states, LedStates(True, True, False))
+
+    def test_reset_allows_a_new_gesture_session_after_mode_change(self) -> None:
+        service = GestureService(
+            LedService(),
+            confirmation_seconds=0,
+            confirmation_frames=1,
+            cooldown_seconds=10,
+        )
+        self.assertTrue(service.observe(Gesture.THUMBS_UP, now=0).triggered)
+
+        service.reset()
+        decision = service.observe(Gesture.VICTORY, now=0.1)
+
+        self.assertTrue(decision.triggered)
+        self.assertEqual(decision.states, LedStates(True, True, False))

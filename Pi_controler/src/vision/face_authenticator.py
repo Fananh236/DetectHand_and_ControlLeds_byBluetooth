@@ -73,8 +73,9 @@ class FaceAuthenticator:
     def __init__(
         self,
         reference_directory: Path,
-        threshold: float = 55.0,
+        threshold: float = 75.0,
         min_face_size: int = 80,
+        model_path: Path | None = None,
     ) -> None:
         if threshold <= 0:
             raise ValueError("threshold must be greater than zero.")
@@ -98,6 +99,18 @@ class FaceAuthenticator:
         self._threshold = threshold
         self._min_face_size = min_face_size
         self._recognizer = cv2.face.LBPHFaceRecognizer_create(1, 8, 8, 8, threshold)
+        self._reference_face_count = 0
+        if model_path is not None and model_path.is_file():
+            try:
+                self._recognizer.read(str(model_path))
+                self._recognizer.setThreshold(threshold)
+            except cv2.error as exc:
+                raise FaceAuthenticationSetupError(
+                    f"Cannot load the trained face model from {model_path}."
+                ) from exc
+            LOGGER.info("Loaded trained face authentication model: %s", model_path)
+            return
+
         reference_faces = self._load_reference_faces(reference_directory)
         if not reference_faces:
             raise FaceAuthenticationSetupError(
@@ -107,15 +120,36 @@ class FaceAuthenticator:
 
         labels = np.full(len(reference_faces), OWNER_LABEL, dtype=np.int32)
         self._recognizer.train(reference_faces, labels)
+        self._reference_face_count = len(reference_faces)
         LOGGER.info(
             "Face authentication is ready with %d owner reference image(s).",
             len(reference_faces),
         )
 
+    @property
+    def reference_face_count(self) -> int:
+        """Number of normalized and augmented samples used during training."""
+        return self._reference_face_count
+
+    def save_model(self, model_path: Path) -> None:
+        """Atomically persist the trained LBPH model for faster application startup."""
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = model_path.with_name(f".{model_path.stem}.tmp{model_path.suffix}")
+        try:
+            self._recognizer.write(str(temporary_path))
+            temporary_path.replace(model_path)
+        except cv2.error as exc:
+            temporary_path.unlink(missing_ok=True)
+            raise FaceAuthenticationSetupError(
+                f"Cannot save the trained face model to {model_path}."
+            ) from exc
+
     def authenticate(self, frame_bgr) -> FaceAuthenticationResult:
         """Authorize only one visible face that matches the owner references."""
         gray_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         faces = self._detect_faces(gray_frame)
+        if not faces:
+            faces = self._detect_faces(gray_frame, relaxed=True)
         if not faces:
             return FaceAuthenticationResult(FaceAuthenticationStatus.NO_FACE)
         if len(faces) != 1:
@@ -172,12 +206,23 @@ class FaceAuthenticator:
             reference_faces.extend((normalized_face, cv2.flip(normalized_face, 1)))
         return reference_faces
 
-    def _detect_faces(self, gray_image) -> list[tuple[int, int, int, int]]:
+    def _detect_faces(
+        self,
+        gray_image,
+        relaxed: bool = False,
+    ) -> list[tuple[int, int, int, int]]:
+        min_face_size = self._min_face_size
+        scale_factor = 1.1
+        min_neighbors = 6
+        if relaxed:
+            min_face_size = max(60, int(self._min_face_size * 0.75))
+            scale_factor = 1.08
+            min_neighbors = 5
         detected = self._face_detector.detectMultiScale(
-            gray_image,
-            scaleFactor=1.1,
-            minNeighbors=6,
-            minSize=(self._min_face_size, self._min_face_size),
+            cv2.equalizeHist(gray_image) if relaxed else gray_image,
+            scaleFactor=scale_factor,
+            minNeighbors=min_neighbors,
+            minSize=(min_face_size, min_face_size),
         )
         return [tuple(map(int, face)) for face in detected]
 
@@ -185,4 +230,5 @@ class FaceAuthenticator:
     def _crop_and_normalize(gray_image, face_box: tuple[int, int, int, int]):
         x, y, width, height = face_box
         face = gray_image[y:y + height, x:x + width]
-        return cv2.resize(face, FACE_SIZE, interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(face, FACE_SIZE, interpolation=cv2.INTER_AREA)
+        return cv2.equalizeHist(resized)

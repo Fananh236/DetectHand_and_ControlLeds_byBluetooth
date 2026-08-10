@@ -10,7 +10,7 @@ Dockerfile. In the shared Jenkins UI, create a Pipeline job using **Pipeline
 script from SCM**, select this repository, and use `Jenkinsfile` as the script
 path.
 
-The current pipeline requires Docker Pipeline support, which is installed by
-the shared controller image. For a production or hardware-lab setup, run
-device-facing stages on a dedicated labelled Jenkins agent rather than on the
-shared controller.
+The current pipeline runs natively on a Windows-labelled Jenkins agent and
+validates both the Python controller and the Django dashboard. For a
+production or hardware-lab setup, run device-facing stages on a dedicated
+labelled Jenkins agent rather than on the shared controller.

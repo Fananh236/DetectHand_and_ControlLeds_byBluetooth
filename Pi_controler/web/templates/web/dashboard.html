@@ -1,0 +1,127 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10192f">
+  <title>Gesture Control Hub</title>
+  <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
+</head>
+<body>
+  <main class="shell" id="dashboard" data-device-id="{{ device.id }}">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <div>
+          <p class="eyebrow">HAND GESTURE + IOT</p>
+          <h1>Gesture Control Hub</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="connection-pill" id="connection-pill" aria-live="polite">
+          <span class="status-dot {% if status.bluetooth.connected %}is-online{% endif %}"></span>
+          <span id="connection-label">{% if status.bluetooth.connected %}Bluetooth connected{% else %}Bluetooth reconnecting{% endif %}</span>
+        </span>
+        <span class="user-name">{{ request.user.get_username }}</span>
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button class="text-button" type="submit">Đăng xuất</button>
+        </form>
+      </div>
+    </header>
+
+    <section class="hero-grid">
+      <div class="hero-copy card">
+        <p class="eyebrow">LOCAL DEVICE</p>
+        <h2>{{ device.name }}</h2>
+        <p>Điều khiển LED bằng dashboard hoặc cử chỉ tay; mọi lệnh đều được ghi vào nhật ký thiết bị.</p>
+        <div class="hero-metadata">
+          <span>Command <strong id="command-value">{{ status.leds.command }}</strong></span>
+          <span>Source <strong id="source-value">{{ status.leds.last_source }}</strong></span>
+        </div>
+      </div>
+      <div class="mode-card card">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">CONTROL MODE</p>
+            <h2 id="mode-title">{{ status.control_mode|title }}</h2>
+          </div>
+          <span class="mode-badge" id="mode-badge">{{ status.control_mode }}</span>
+        </div>
+        <div class="mode-switch" role="group" aria-label="Chế độ điều khiển">
+          <button type="button" data-mode="manual" class="mode-button {% if status.control_mode == 'manual' %}is-active{% endif %}">Manual</button>
+          <button type="button" data-mode="gesture" class="mode-button {% if status.control_mode == 'gesture' %}is-active{% endif %}">Gesture</button>
+          <button type="button" data-mode="locked" class="mode-button {% if status.control_mode == 'locked' %}is-active{% endif %}">Locked</button>
+        </div>
+        <p class="mode-hint" id="mode-hint">Manual cho phép dashboard gửi lệnh trực tiếp.</p>
+      </div>
+    </section>
+
+    <section class="dashboard-grid">
+      <section class="card led-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LIGHTING CONTROL</p>
+            <h2>LED states</h2>
+          </div>
+          <button type="button" class="outline-button" id="refresh-button">Làm mới</button>
+        </div>
+        <div class="led-grid">
+          <article class="led-card {% if status.leds.led1 %}is-on{% endif %}" data-led-card="led1">
+            <span class="led-number">01</span><span class="led-glow" aria-hidden="true"></span>
+            <h3>LED One</h3><p class="led-state" data-led-label="led1">{% if status.leds.led1 %}ON{% else %}OFF{% endif %}</p>
+            <button type="button" class="toggle-button" data-led="led1" aria-pressed="{{ status.leds.led1|yesno:'true,false' }}">Toggle</button>
+          </article>
+          <article class="led-card {% if status.leds.led2 %}is-on{% endif %}" data-led-card="led2">
+            <span class="led-number">02</span><span class="led-glow" aria-hidden="true"></span>
+            <h3>LED Two</h3><p class="led-state" data-led-label="led2">{% if status.leds.led2 %}ON{% else %}OFF{% endif %}</p>
+            <button type="button" class="toggle-button" data-led="led2" aria-pressed="{{ status.leds.led2|yesno:'true,false' }}">Toggle</button>
+          </article>
+          <article class="led-card {% if status.leds.led3 %}is-on{% endif %}" data-led-card="led3">
+            <span class="led-number">03</span><span class="led-glow" aria-hidden="true"></span>
+            <h3>LED Three</h3><p class="led-state" data-led-label="led3">{% if status.leds.led3 %}ON{% else %}OFF{% endif %}</p>
+            <button type="button" class="toggle-button" data-led="led3" aria-pressed="{{ status.leds.led3|yesno:'true,false' }}">Toggle</button>
+          </article>
+        </div>
+        <div class="scene-row" aria-label="Cảnh ánh sáng">
+          {% for scene in scenes %}
+            <button type="button" class="scene-button" data-scene-id="{{ scene.id }}">{{ scene.name }}</button>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="card live-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">LIVE VISION</p><h2>Camera & gesture</h2></div>
+          <span class="live-indicator" id="camera-running">Camera idle</span>
+        </div>
+        <div class="camera-frame" id="camera-frame">
+          <img id="camera-preview" alt="Camera preview for local gesture recognition" hidden>
+          <div class="camera-placeholder" id="camera-placeholder">Camera preview is private and stays on this device.</div>
+        </div>
+        <div class="vision-stats">
+          <div><span>Face auth</span><strong id="face-status">Waiting</strong></div>
+          <div><span>Gesture</span><strong id="gesture-status">UNKNOWN</strong></div>
+          <div><span>Finger count</span><strong id="finger-count">0</strong></div>
+          <div><span>FPS</span><strong id="fps-value">0.0</strong></div>
+        </div>
+        <div class="camera-actions">
+          <button type="button" class="primary-button" data-camera-action="start">Start camera</button>
+          <button type="button" class="outline-button" data-camera-action="stop">Stop</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="card event-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">ACTIVITY</p><h2>Event timeline</h2></div>
+        <span class="event-count" id="event-count">Loading…</span>
+      </div>
+      <ol class="event-list" id="event-list" aria-live="polite"></ol>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="{% static 'web/dashboard.js' %}?v=20260810-4" defer></script>
+</body>
+</html>

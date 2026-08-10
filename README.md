@@ -161,6 +161,12 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+Để chạy lint, coverage và toàn bộ kiểm thử khi phát triển, thay lệnh cuối bằng:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
 > Xác thực khuôn mặt dùng `opencv-contrib-python`. Nếu trước đây đã cài `opencv-python`, hãy gỡ nó trước để tránh hai gói cùng cung cấp module `cv2`:
 
 ```powershell
@@ -230,6 +236,7 @@ Nhấn `Q` để thoát.
 | ---------------------------------------- | ---------------------------- | ------------------------------------------------------------ |
 | `CAMERA_INDEX`                         | `0`                        | Chỉ số webcam.                                             |
 | `CAMERA_WIDTH`, `CAMERA_HEIGHT`      | `640`, `480`             | Độ phân giải camera mong muốn.                          |
+| `CAMERA_FPS`                          | `30`                     | FPS webcam yêu cầu; đặt `60` nếu camera hỗ trợ.        |
 | `BLUETOOTH_SERIAL_PORT`                | `COM10` / `/dev/rfcomm0` | Cổng HC-05. Đặt rỗng để chạy camera không Bluetooth. |
 | `BLUETOOTH_SERIAL_BAUDRATE`            | `9600`                     | Baud data mode.                                              |
 | `SERIAL_TIMEOUT_SECONDS`               | `0.5`                      | Timeout đọc/ghi serial.                                    |
@@ -238,7 +245,7 @@ Nhấn `Q` để thoát.
 | `GESTURE_CONFIRMATION_FRAMES`          | `10`                       | Số frame liên tiếp để xác nhận cử chỉ.              |
 | `GESTURE_COOLDOWN_SECONDS`             | `1.0`                      | Thời gian khóa sau một lệnh.                             |
 | `FACE_AUTH_ENABLED`                    | `true`                     | Bật xác thực khuôn mặt trước khi nhận diện tay. Chỉ tắt khi phát triển/debug. |
-| `FACE_AUTH_THRESHOLD`                  | `55.0`                     | Ngưỡng LBPH; nhỏ hơn nghiêm ngặt hơn. Tăng dần nếu chính chủ bị từ chối. |
+| `FACE_AUTH_THRESHOLD`                  | `75.0`                     | Ngưỡng LBPH; nhỏ hơn nghiêm ngặt hơn. Tăng dần nếu chính chủ bị từ chối. |
 | `FACE_AUTH_CHECK_INTERVAL_FRAMES`      | `5`                        | Số frame giữa hai lần so khớp khuôn mặt để giảm tải CPU. |
 | `LOG_LEVEL`                            | `INFO`                     | Mức log, ví dụ`DEBUG`.                                  |
 
@@ -307,3 +314,71 @@ Khi triển khai trên máy khác, chỉ cần kiểm tra lại số cổng Blue
 - Giữ cử chỉ ổn định ít nhất 0.5 giây hoặc 10 frame.
 - Tránh ngược sáng; thử tăng độ sáng và đặt tay tách khỏi nền.
 - Các cử chỉ phức tạp như `OK` và `ROCK` cần đầu ngón rõ ràng, không bị che
+
+## Web dashboard Django (all-in-one)
+
+Project có sẵn dashboard Django chạy cùng máy/Raspberry Pi đang nối webcam,
+HC-05 và Arduino. Browser không kết nối trực tiếp với HC-05; Django là gateway
+an toàn nhận lệnh web rồi gửi trạng thái `LED:xyz` qua Python Bluetooth client.
+
+Dashboard bao gồm:
+
+- Đăng nhập và màn hình tạo tài khoản quản trị ở lần chạy đầu tiên.
+- Điều khiển 3 LED, scene `All On`/`All Off` và Django Admin.
+- Ba mode `manual`, `gesture`, `locked` để tránh xung đột lệnh.
+- REST API, WebSocket realtime, trạng thái Bluetooth/camera và event timeline.
+- Camera preview chỉ giữ trong RAM thiết bị, không lưu ảnh/video.
+
+### Huấn luyện model khuôn mặt
+
+Đặt ảnh chính diện của cùng một chủ sở hữu trong `Pi_controler/data`, sau đó
+chạy lệnh sau từ thư mục `Pi_controler`:
+
+```powershell
+python manage.py train_face_model --force
+```
+
+Model LBPH được lưu tại `Pi_controler/model/face_authenticator.yml` và được ứng
+dụng tải trực tiếp khi bấm **Start camera**. File model được giữ local và không
+đưa vào Git vì là dữ liệu sinh trắc học dẫn xuất. Ảnh không phát hiện được
+khuôn mặt sẽ bị bỏ qua kèm cảnh báo; nên dùng ảnh chính diện, đủ sáng và không
+bị che khuất.
+
+### Chạy dashboard
+
+Từ thư mục gốc project sau khi cài dependencies:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+cd Pi_controler
+python manage.py migrate
+python manage.py runserver
+```
+
+Mở `http://127.0.0.1:8000`. Lần đầu hệ thống chuyển tới `/setup/` để tạo tài
+khoản quản trị; không có mật khẩu mặc định. Sau khi đăng nhập, dùng nút
+**Start camera** khi muốn kích hoạt nhận diện cử chỉ.
+
+Để mở dashboard cho điện thoại/laptop cùng Wi-Fi, đặt IP LAN của máy gateway
+vào allowlist rồi chạy server trên mọi network interface:
+
+```powershell
+$env:DJANGO_ALLOWED_HOSTS = "localhost,127.0.0.1,192.168.1.20"
+$env:DJANGO_SECRET_KEY = "thay-bang-mot-chuoi-bi-mat-dai-va-ngau-nhien"
+cd Pi_controler
+python manage.py runserver 0.0.0.0:8000
+```
+
+Thay `192.168.1.20` bằng IP của máy đang chạy Django. Không mở cổng này trực
+tiếp ra Internet; dùng VPN hoặc reverse proxy HTTPS cùng xác thực phù hợp nếu
+cần truy cập từ xa.
+
+### Kiểm thử dashboard
+
+```powershell
+cd Pi_controler
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test web
+python -m unittest discover -s tests -v
+```

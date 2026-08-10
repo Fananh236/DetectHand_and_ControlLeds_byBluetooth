@@ -1,0 +1,27 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thiết lập · Gesture Control Hub</title>
+  <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
+</head>
+<body class="login-body">
+  <main class="login-card card">
+    <span class="brand-mark" aria-hidden="true">✦</span>
+    <p class="eyebrow">FIRST-RUN SETUP</p>
+    <h1>Tạo tài khoản quản trị</h1>
+    <p>Tài khoản này kiểm soát dashboard và Django Admin trên thiết bị cục bộ.</p>
+    <form method="post" class="login-form">
+      {% csrf_token %}
+      {% for field in form %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      {% endfor %}
+      <button class="primary-button" type="submit">Hoàn tất thiết lập</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -44,6 +44,7 @@ class Settings:
     camera_index: int
     camera_width: int
     camera_height: int
+    camera_fps: int
     bluetooth_serial_port: str | None
     bluetooth_serial_baudrate: int
     serial_timeout_seconds: float
@@ -53,6 +54,7 @@ class Settings:
     gesture_cooldown_seconds: float
     face_auth_enabled: bool
     face_auth_reference_directory: Path
+    face_auth_model_path: Path
     face_auth_threshold: float
     face_auth_check_interval_frames: int
     log_level: str
@@ -72,6 +74,7 @@ class Settings:
             camera_index=_environment_int("CAMERA_INDEX", 0),
             camera_width=_environment_int("CAMERA_WIDTH", 640),
             camera_height=_environment_int("CAMERA_HEIGHT", 480),
+            camera_fps=_environment_int("CAMERA_FPS", 30),
             bluetooth_serial_port=bluetooth_port,
             bluetooth_serial_baudrate=_environment_int(
                 "BLUETOOTH_SERIAL_BAUDRATE", 9600
@@ -91,7 +94,8 @@ class Settings:
             ),
             face_auth_enabled=_environment_bool("FACE_AUTH_ENABLED", True),
             face_auth_reference_directory=project_root / "data",
-            face_auth_threshold=_environment_float("FACE_AUTH_THRESHOLD", 55.0),
+            face_auth_model_path=project_root / "model" / "face_authenticator.yml",
+            face_auth_threshold=_environment_float("FACE_AUTH_THRESHOLD", 75.0),
             face_auth_check_interval_frames=_environment_int(
                 "FACE_AUTH_CHECK_INTERVAL_FRAMES", 5
             ),
@@ -105,6 +109,8 @@ class Settings:
             raise ValueError("CAMERA_INDEX must be zero or greater.")
         if self.camera_width <= 0 or self.camera_height <= 0:
             raise ValueError("CAMERA_WIDTH and CAMERA_HEIGHT must be greater than zero.")
+        if self.camera_fps <= 0:
+            raise ValueError("CAMERA_FPS must be greater than zero.")
         if self.bluetooth_serial_baudrate <= 0:
             raise ValueError("BLUETOOTH_SERIAL_BAUDRATE must be greater than zero.")
         if self.serial_timeout_seconds <= 0:

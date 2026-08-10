@@ -8,8 +8,7 @@ node('Window') {
             bat '''
             python -m venv .jenkins-venv
             "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install --upgrade pip
-            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install flake8 coverage
-            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install -r requirements.txt
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m pip install -r requirements-dev.txt
             '''
         }
 
@@ -22,7 +21,15 @@ node('Window') {
 
         stage('Lint') {
             bat '''
-            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m flake8 Pi_controler\\src Pi_controler\\tests
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m flake8 Pi_controler\\src Pi_controler\\tests Pi_controler\\web Pi_controler\\web_config
+            '''
+        }
+
+        stage('Django Check') {
+            bat '''
+            cd /d Pi_controler
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" manage.py check
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" manage.py makemigrations --check --dry-run
             '''
         }
 
@@ -30,6 +37,7 @@ node('Window') {
             bat '''
             cd /d Pi_controler
             "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m coverage run -m unittest discover -s tests -p "test_*.py"
+            "%WORKSPACE%\\.jenkins-venv\\Scripts\\python.exe" -m coverage run -a manage.py test web
             '''
         }
 

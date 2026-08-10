@@ -5,4 +5,13 @@ __pycache__/
 *.log
 data/*
 !data/.gitkeep
+Pi_controler/data/*
+!Pi_controler/data/.gitkeep
+Pi_controler/db.sqlite3
+Pi_controler/staticfiles/
+Pi_controler/.env
+Pi_controler/model/face_authenticator.yml
 model/*.download
+.coverage
+coverage.xml
+Pi_controler/coverage.xml

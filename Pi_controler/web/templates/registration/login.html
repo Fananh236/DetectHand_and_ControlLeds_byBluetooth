@@ -1,0 +1,26 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập · Gesture Control Hub</title>
+  <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
+</head>
+<body class="login-body">
+  <main class="login-card card">
+    <span class="brand-mark" aria-hidden="true">✦</span>
+    <p class="eyebrow">LOCAL DEVICE ACCESS</p>
+    <h1>Gesture Control Hub</h1>
+    <p>Đăng nhập để điều khiển thiết bị và xem trạng thái nhận diện.</p>
+    {% if form.errors %}<p class="form-error">Tên đăng nhập hoặc mật khẩu chưa đúng.</p>{% endif %}
+    <form method="post" class="login-form">
+      {% csrf_token %}
+      <label for="id_username">Tên đăng nhập</label>{{ form.username }}
+      <label for="id_password">Mật khẩu</label>{{ form.password }}
+      <button class="primary-button" type="submit">Đăng nhập</button>
+      <input type="hidden" name="next" value="{{ next }}">
+    </form>
+  </main>
+</body>
+</html>

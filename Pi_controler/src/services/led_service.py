@@ -70,3 +70,9 @@ class LedService:
 
         self._states = LedStates(led1, led2, led3)
         return LedUpdate(gesture, previous_states, self._states)
+
+    def set_states(self, states: LedStates) -> LedUpdate:
+        """Replace all LED states for a trusted manual or scene command."""
+        previous_states = self._states
+        self._states = states
+        return LedUpdate(Gesture.UNKNOWN, previous_states, self._states)
