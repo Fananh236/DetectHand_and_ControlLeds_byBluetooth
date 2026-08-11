@@ -1,7 +1,19 @@
-node('Window') {
+def controllerLabel = 'built-in'
+def windowsAgentLabel = 'Window'
+
+node(controllerLabel) {
+    stage('Checkout on Controller') {
+        deleteDir()
+        checkout scm
+        stash name: 'source', includes: '**'
+    }
+}
+
+node(windowsAgentLabel) {
     try {
-        stage('Checkout') {
-            checkout scm
+        stage('Prepare Windows Agent') {
+            deleteDir()
+            unstash 'source'
         }
 
         stage('Setup Python Environment') {
@@ -53,7 +65,7 @@ node('Window') {
             archiveArtifacts artifacts: 'Pi_controler/coverage.xml', allowEmptyArchive: true, fingerprint: true
         }
 
-        stage('Cleanup') {
+        stage('Cleanup Windows Agent') {
             deleteDir()
         }
     }
