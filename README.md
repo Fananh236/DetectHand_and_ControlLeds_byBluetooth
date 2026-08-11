@@ -373,6 +373,15 @@ Thay `192.168.1.20` bằng IP của máy đang chạy Django. Không mở cổng
 tiếp ra Internet; dùng VPN hoặc reverse proxy HTTPS cùng xác thực phù hợp nếu
 cần truy cập từ xa.
 
+Khi dùng ngrok, allowlist hostname và tin cậy origin HTTPS của tunnel, sau đó
+restart Django. Thay URL khi ngrok cấp tunnel mới:
+
+```powershell
+$env:DJANGO_ALLOWED_HOSTS = "localhost,127.0.0.1,tall-krypton-pork.ngrok-free.dev"
+$env:DJANGO_CSRF_TRUSTED_ORIGINS = "https://tall-krypton-pork.ngrok-free.dev"
+python manage.py runserver 0.0.0.0:8000
+```
+
 ### Kiểm thử dashboard
 
 ```powershell
