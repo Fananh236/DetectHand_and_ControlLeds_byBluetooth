@@ -15,6 +15,12 @@ from .services import get_default_device, reset_controller
 class InitialSetupTests(TestCase):
     """A fresh installation must not need a command-line superuser step."""
 
+    def test_readiness_endpoint_is_public(self) -> None:
+        response = self.client.get("/healthz/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
     def test_first_run_creates_and_logs_in_the_local_administrator(self) -> None:
         response = self.client.get("/")
         self.assertRedirects(response, "/setup/")

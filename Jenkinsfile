@@ -1,6 +1,16 @@
 def controllerLabel = 'built-in'
 def windowsAgentLabel = 'Window'
 
+properties([
+    parameters([
+        booleanParam(
+            name: 'DEPLOY_TO_RENDER',
+            defaultValue: false,
+            description: 'After CI succeeds, trigger the configured Render deploy hook.'
+        )
+    ])
+])
+
 node(controllerLabel) {
     stage('Checkout on Controller') {
         deleteDir()
@@ -67,6 +77,19 @@ node(windowsAgentLabel) {
 
         stage('Cleanup Windows Agent') {
             deleteDir()
+        }
+    }
+}
+
+if (params.DEPLOY_TO_RENDER) {
+    node(controllerLabel) {
+        stage('Deploy to Render') {
+            withCredentials([string(credentialsId: 'render-deploy-hook', variable: 'RENDER_DEPLOY_HOOK')]) {
+                sh '''
+                set +x
+                curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK"
+                '''
+            }
         }
     }
 }

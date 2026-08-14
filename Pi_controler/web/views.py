@@ -6,7 +6,8 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse, StreamingHttpResponse
+from django.db import DatabaseError, connection
+from django.http import Http404, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.views import View
@@ -21,6 +22,18 @@ from .forms import InitialSetupForm
 from .serializers import EventSerializer, LedWriteSerializer, ModeWriteSerializer, SceneSerializer
 from .services import ControlRejected, get_controller, get_default_device
 from .vision_runtime import get_camera_runtime
+
+
+class ReadinessView(View):
+    """Public readiness probe used by the hosting platform during deploys."""
+
+    def get(self, request):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+        except DatabaseError:
+            return JsonResponse({"status": "database unavailable"}, status=503)
+        return JsonResponse({"status": "ok"})
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):

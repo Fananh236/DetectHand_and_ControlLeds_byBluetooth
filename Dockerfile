@@ -1,6 +1,9 @@
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 WORKDIR /workspace
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -22,3 +25,10 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY . /workspace
 
 WORKDIR /workspace/Pi_controler
+
+COPY docker/entrypoint.sh /usr/local/bin/start-dashboard
+RUN chmod +x /usr/local/bin/start-dashboard
+
+EXPOSE 8000
+
+CMD ["/usr/local/bin/start-dashboard"]

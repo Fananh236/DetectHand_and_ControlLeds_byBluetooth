@@ -13,11 +13,13 @@ from .views import (
     HealthAPIView,
     InitialSetupView,
     LedStateAPIView,
+    ReadinessView,
     SceneAPIView,
 )
 
 
 urlpatterns = [
+    path("healthz/", ReadinessView.as_view(), name="readiness"),
     path("", DashboardView.as_view(), name="dashboard"),
     path("setup/", InitialSetupView.as_view(), name="initial-setup"),
     path("api/v1/health/", HealthAPIView.as_view(), name="health"),
